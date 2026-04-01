@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Mouse Monitor
+Comment=A tray application with looks for aerox battery level and pushes notification if needed
+Exec=env ASSETS_DIR=/home/someUsername/thisMouse-monitorGitRepo/assets /thisIsWhereGOPATHPointsTo/bin/mouse-monitor
+Icon=/home/someUsername/thisMouse-monitorGitRepo/assets/icons/mouse-monitor-base.png
+Terminal=false
+Type=Application
+Categories=Utility;

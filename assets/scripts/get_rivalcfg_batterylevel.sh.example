@@ -1,0 +1,13 @@
+#!/bin/bash
+
+if [[ `id -nu` != "soneUsername" ]];then
+   echo "Not someUsername user, exiting.."
+   exit 1
+fi
+
+# Import the virtualenv
+source /home/someUsername/someRivalcfgGitDir/rivalcfg.env/bin/activate
+
+# Call Rivalcfg
+rivalcfg --battery-level
+
