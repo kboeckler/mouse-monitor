@@ -205,7 +205,7 @@ func sendNotification(title string, body string, icon string) {
 }
 
 func sendCriticalNotification(title string, body string, icon string) {
-	cmd := exec.Command("/bin/sh", sendNotificationScript, title, body, icon)
+	cmd := exec.Command("/bin/sh", sendCriticalNotificationScript, title, body, icon)
 	_, err := cmd.Output()
 	if err != nil {
 		log.Printf("Error executing bash to send a critical notification: %v\n", err)
