@@ -1,8 +1,8 @@
 package main
 
+import "errors"
+import "flag"
 import "log"
-import "strings"
-import "strconv"
 import "fmt"
 import "time"
 import "os/exec"
@@ -10,6 +10,7 @@ import "os"
 import "path/filepath"
 import "sync"
 import "fyne.io/systray"
+import "kevinboeckler.com/mouse-monitor/battery"
 
 const(
 	ASSETS_DIR_ENV_NAME = "ASSETS_DIR"
@@ -28,13 +29,20 @@ var (
 	// updateMu serializes battery updates (ticker, refresh button, startup)
 	// and guards alreadyNotified.
 	updateMu sync.Mutex
-	getBatteryLevelScript string
+	// lastStatus/lastSeen remember the last good reading for the asleep text.
+	lastStatus *battery.Status
+	lastSeen time.Time
 	sendNotificationScript string
 	sendCriticalNotificationScript string
 )
 
 
 func main() {
+	debugBattery := flag.Bool("debug-battery", false, "query the mouse once, print raw and decoded battery replies, and exit")
+	flag.Parse()
+	if *debugBattery {
+		os.Exit(runDebugBattery())
+	}
 	loadAssetsDir()
 	readIcons()
 	setScripts()
@@ -50,7 +58,6 @@ func loadAssetsDir() {
 }
 
 func setScripts() {
-	getBatteryLevelScript = fmt.Sprintf("%s/scripts/%s", assetsDir, "get_rivalcfg_batterylevel.sh")
 	sendNotificationScript = fmt.Sprintf("%s/scripts/%s", assetsDir, "send_notification.sh")
 	sendCriticalNotificationScript = fmt.Sprintf("%s/scripts/%s", assetsDir, "send_critical_notification.sh")
 }
@@ -112,60 +119,74 @@ func updateBatteryLevel() {
 
 // doUpdateBatteryLevel must be called with updateMu held.
 func doUpdateBatteryLevel() {
-	batteryLevelRaw, err := readBatterylevel()
-	if err != nil {
-		log.Printf("Error reading battery output: %v\n", err)
-		return
+	status, err := battery.Read(battery.DefaultTimeout)
+	switch {
+	case errors.Is(err, battery.ErrAsleep):
+		showUnavailable("Asleep or out of range")
+	case errors.Is(err, battery.ErrNotFound):
+		showUnavailable("Not connected")
+	case err != nil:
+		log.Printf("Error reading battery level: %v\n", err)
+	default:
+		lastStatus = &status
+		lastSeen = time.Now()
+		handleNewBatteryLevel(status)
 	}
-	batteryLevel, err := parseBatteryOutput(batteryLevelRaw)
-	if err != nil {
-		log.Printf("Error converting battery output: %v\n", err)
-		return
-	}
-	handleNewBatteryLevel(batteryLevel)
 }
 
-func handleNewBatteryLevel(batteryLevel batteryLevel) {
+// showUnavailable shows the neutral icon while no reading is possible, with
+// the last known level so the menu still tells how full the battery was.
+func showUnavailable(reason string) {
+	text := fmt.Sprintf("%s | %s", APP_NAME, reason)
+	if lastStatus != nil {
+		text += fmt.Sprintf(" (last: %d%% at %s)", lastStatus.Level, lastSeen.Format("15:04"))
+	}
+	systray.SetIcon(icons["base"].data)
+	systray.SetTooltip(text)
+	infoBtn.SetTitle(text)
+}
+
+func handleNewBatteryLevel(batteryLevel battery.Status) {
 	// Re-arm the alerts of the opposite state so they fire again on every
 	// charge/discharge cycle, not only once per app run.
-	if batteryLevel.charging {
+	if batteryLevel.Charging {
 		alreadyNotified[NOTIFY_LOW] = false
 		alreadyNotified[NOTIFY_CRIT] = false
 	} else {
 		alreadyNotified[NOTIFY_FULL] = false
 	}
-	if (batteryLevel.charging) {
-		if (batteryLevel.level == 100) {
+	if (batteryLevel.Charging) {
+		if (batteryLevel.Level == 100) {
 			if !alreadyNotified[NOTIFY_FULL] {
 				alreadyNotified[NOTIFY_FULL] = true
 				sendNotification("Battery fully charged", "The Battery Level is at 100%. You can unplug the mouse.", icons["charging-full"].path)
 			}
 			systray.SetIcon(icons["charging-full"].data)
-		} else if (batteryLevel.level >= 80) {
+		} else if (batteryLevel.Level >= 80) {
 			systray.SetIcon(icons["charging-full"].data)
-		} else if (batteryLevel.level >= 40) {
+		} else if (batteryLevel.Level >= 40) {
 			systray.SetIcon(icons["charging-34"].data)
-		} else if (batteryLevel.level >= 20) {
+		} else if (batteryLevel.Level >= 20) {
 			systray.SetIcon(icons["charging-12"].data)
 		} else {
 			systray.SetIcon(icons["charging-14"].data)
 		}
 	} else {
-		if (batteryLevel.level <= 5) {
+		if (batteryLevel.Level <= 5) {
 			if !alreadyNotified[NOTIFY_CRIT] {
 				alreadyNotified[NOTIFY_CRIT] = true
-				sendCriticalNotification(fmt.Sprintf("Battery Level critical (%d%%)", batteryLevel.level), fmt.Sprintf("The Battery Level is decreasing (currently at %d%%). Please connect it soon.", batteryLevel.level), icons["14"].path)
+				sendCriticalNotification(fmt.Sprintf("Battery Level critical (%d%%)", batteryLevel.Level), fmt.Sprintf("The Battery Level is decreasing (currently at %d%%). Please connect it soon.", batteryLevel.Level), icons["14"].path)
 			}
 			systray.SetIcon(icons["14"].data)
-		} else if (batteryLevel.level <= 10) {
+		} else if (batteryLevel.Level <= 10) {
 			if !alreadyNotified[NOTIFY_LOW] {
 				alreadyNotified[NOTIFY_LOW] = true
-				sendNotification(fmt.Sprintf("Battery Level low (%d%%)", batteryLevel.level), fmt.Sprintf("The Battery Level is decreasing (currently at %d%%). Please connect it soon.", batteryLevel.level), icons["14"].path)
+				sendNotification(fmt.Sprintf("Battery Level low (%d%%)", batteryLevel.Level), fmt.Sprintf("The Battery Level is decreasing (currently at %d%%). Please connect it soon.", batteryLevel.Level), icons["14"].path)
 			}
 			systray.SetIcon(icons["14"].data)
-		} else if (batteryLevel.level <= 30) {
+		} else if (batteryLevel.Level <= 30) {
 			systray.SetIcon(icons["12"].data)
-		} else if (batteryLevel.level <= 70) {
+		} else if (batteryLevel.Level <= 70) {
 			systray.SetIcon(icons["34"].data)
 		} else {
 			systray.SetIcon(icons["full"].data)
@@ -173,53 +194,12 @@ func handleNewBatteryLevel(batteryLevel batteryLevel) {
 
 	}
 	chargingStr := ""
-	if batteryLevel.charging {
+	if batteryLevel.Charging {
 		chargingStr = " (Charging)"
 	}
-	infoBtn.SetTitle(fmt.Sprintf("%s | Current level: %d%s", APP_NAME, batteryLevel.level, chargingStr))
-}
-
-type batteryLevel struct {
-	charging bool
-	level int
-}
-
-func parseBatteryOutput(output string) (batteryLevel, error) {
-	// Discharging [========  ] 85 %
-	// Charging    [=         ] 5 %
-	// Something with an error text
-	bat := batteryLevel{}
-	if !strings.EqualFold(output, strings.ReplaceAll(output, "Discharging", "")) {
-		bat.charging = false
-	} else if !strings.EqualFold(output, strings.ReplaceAll(output, "Charging", "")) {
-		bat.charging = true
-	} else {
-		return bat, fmt.Errorf("Invalid battery string: %s\n", output)
-	}
-	split := strings.Split(output, "]")
-	if len(split) == 1 {
-		return bat, fmt.Errorf("Invalid battery string: %s\n", output)
-	}
-	split2 := strings.Split(split[1], "%")
-	if len(split2) == 1 {
-		return bat, fmt.Errorf("Invalid battery string: %s\n", output)
-	}
-	levelStr := strings.TrimSpace(split2[0])
-	levelInt, err := strconv.Atoi(levelStr)
-	if err != nil {
-		return bat, fmt.Errorf("Invalid battery string: %s\n", output)
-	}
-	bat.level = levelInt
-	return bat, nil
-}
-
-func readBatterylevel() (string, error) {
-	cmd := exec.Command("/bin/bash", getBatteryLevelScript)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("Error executing bash to read battery level: %s\n", err)
-	}
-	return string(output), nil
+	text := fmt.Sprintf("%s | Current level: %d%s", APP_NAME, batteryLevel.Level, chargingStr)
+	systray.SetTooltip(text)
+	infoBtn.SetTitle(text)
 }
 
 func sendNotification(title string, body string, icon string) {
@@ -268,3 +248,35 @@ func readFile(file string) []byte {
 	return data
 }
 
+// runDebugBattery queries every matching device once and prints what it
+// answered. It replaces the former cmd/probe tool.
+func runDebugBattery() int {
+	devs, err := battery.FindDevices(battery.SysfsRoot)
+	if err != nil {
+		fmt.Printf("Scanning %s failed: %v\n", battery.SysfsRoot, err)
+		return 1
+	}
+	if len(devs) == 0 {
+		fmt.Println("No Aerox 5 Wireless found (dongle or cable, USB interface 3).")
+		return 1
+	}
+	code := 0
+	for _, d := range devs {
+		status, raw, err := battery.Query(d, battery.DefaultTimeout)
+		fmt.Printf("%s  1038:%04x  %s  command 0x%02x\n", d.Node, d.Product, d.Name, d.Command())
+		if raw != nil {
+			fmt.Printf("  raw:    % x ...\n", raw[:min(len(raw), 16)])
+		}
+		if err != nil {
+			fmt.Printf("  result: %v\n", err)
+			code = 1
+			continue
+		}
+		state := "Discharging"
+		if status.Charging {
+			state = "Charging"
+		}
+		fmt.Printf("  result: %s %d %%\n", state, status.Level)
+	}
+	return code
+}

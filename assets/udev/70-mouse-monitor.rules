@@ -1,0 +1,4 @@
+# Give the logged-in desktop user access to the SteelSeries Aerox 5 Wireless
+# hidraw devices (dongle and cable), so mouse-monitor runs without root.
+# The file number must stay below 73, where systemd applies the uaccess tag.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1038", ATTRS{idProduct}=="1852|185c|1860|1854|185e|1862", TAG+="uaccess"
