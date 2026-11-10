@@ -214,7 +214,7 @@ func parseBatteryOutput(output string) (batteryLevel, error) {
 }
 
 func readBatterylevel() (string, error) {
-	cmd := exec.Command("/bin/sh", getBatteryLevelScript)
+	cmd := exec.Command("/bin/bash", getBatteryLevelScript)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("Error executing bash to read battery level: %s\n", err)
@@ -223,7 +223,7 @@ func readBatterylevel() (string, error) {
 }
 
 func sendNotification(title string, body string, icon string) {
-	cmd := exec.Command("/bin/sh", sendNotificationScript, title, body, icon)
+	cmd := exec.Command("/bin/bash", sendNotificationScript, title, body, icon)
 	_, err := cmd.Output()
 	if err != nil {
 		log.Printf("Error executing bash to send a notification: %v\n", err)
@@ -231,7 +231,7 @@ func sendNotification(title string, body string, icon string) {
 }
 
 func sendCriticalNotification(title string, body string, icon string) {
-	cmd := exec.Command("/bin/sh", sendCriticalNotificationScript, title, body, icon)
+	cmd := exec.Command("/bin/bash", sendCriticalNotificationScript, title, body, icon)
 	_, err := cmd.Output()
 	if err != nil {
 		log.Printf("Error executing bash to send a critical notification: %v\n", err)
