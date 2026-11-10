@@ -8,6 +8,7 @@ import "time"
 import "os/exec"
 import "os"
 import "path/filepath"
+import "sync"
 import "fyne.io/systray"
 
 const(
@@ -24,6 +25,9 @@ var (
 	refreshBtn *systray.MenuItem
 	icons map[string]icon
 	alreadyNotified = make(map[int]bool)
+	// updateMu serializes battery updates (ticker, refresh button, startup)
+	// and guards alreadyNotified.
+	updateMu sync.Mutex
 	getBatteryLevelScript string
 	sendNotificationScript string
 	sendCriticalNotificationScript string
@@ -67,13 +71,11 @@ func onReady() {
 				systray.Quit()
 				return
 			case <- refreshBtn.ClickedCh:
-				resetAlreadyNotified()
-				updateBatteryLevel()
+				refresh()
 			}
 		}
 	}()
-	resetAlreadyNotified()
-	go updateBatteryLevel()
+	go refresh()
 	ticker := time.NewTicker(60 * time.Second)
 	go func() {
 		for {
@@ -87,6 +89,15 @@ func onExit() {
 	// clean up here
 }
 
+// refresh resets the notification state and reads the battery level again.
+func refresh() {
+	updateMu.Lock()
+	defer updateMu.Unlock()
+	resetAlreadyNotified()
+	doUpdateBatteryLevel()
+}
+
+// resetAlreadyNotified must be called with updateMu held.
 func resetAlreadyNotified() {
 	alreadyNotified[NOTIFY_LOW] = false
 	alreadyNotified[NOTIFY_CRIT] = false
@@ -94,6 +105,13 @@ func resetAlreadyNotified() {
 }
 
 func updateBatteryLevel() {
+	updateMu.Lock()
+	defer updateMu.Unlock()
+	doUpdateBatteryLevel()
+}
+
+// doUpdateBatteryLevel must be called with updateMu held.
+func doUpdateBatteryLevel() {
 	batteryLevelRaw, err := readBatterylevel()
 	if err != nil {
 		log.Printf("Error reading battery output: %v\n", err)
@@ -108,6 +126,14 @@ func updateBatteryLevel() {
 }
 
 func handleNewBatteryLevel(batteryLevel batteryLevel) {
+	// Re-arm the alerts of the opposite state so they fire again on every
+	// charge/discharge cycle, not only once per app run.
+	if batteryLevel.charging {
+		alreadyNotified[NOTIFY_LOW] = false
+		alreadyNotified[NOTIFY_CRIT] = false
+	} else {
+		alreadyNotified[NOTIFY_FULL] = false
+	}
 	if (batteryLevel.charging) {
 		if (batteryLevel.level == 100) {
 			if !alreadyNotified[NOTIFY_FULL] {

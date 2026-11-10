@@ -3,3 +3,6 @@ mouse-monitor.desktop
 
 # my adjusted get_rivalcfg script
 assets/scripts/get_rivalcfg_batterylevel.sh
+
+# local build output
+build/
