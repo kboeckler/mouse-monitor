@@ -1,5 +1,5 @@
 // Package battery reads the battery state of a SteelSeries Aerox 5 Wireless
-// directly via Linux hidraw, without rivalcfg.
+// directly via Linux hidraw.
 //
 // Protocol (taken from rivalcfg, verified on real hardware):
 //   - The mouse is the hidraw node on USB interface 3, either via the 2.4 GHz

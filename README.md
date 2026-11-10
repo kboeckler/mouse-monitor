@@ -4,7 +4,7 @@ This project behaves similar to controller-monitor which provides a tray icon an
 
 ## Install
 
-The battery is read directly from the mouse via Linux hidraw; no rivalcfg, Python or driver is needed.
+The battery is read directly from the mouse via Linux hidraw; no extra tools, Python or driver are needed.
 Supported: SteelSeries Aerox 5 Wireless (incl. Destiny 2 and Diablo IV editions), via 2.4 GHz dongle or cable.
 
 1. Allow your user to access the mouse by installing the udev rule, then re-plug the dongle/cable:
